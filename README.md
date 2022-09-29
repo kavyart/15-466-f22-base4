@@ -1,12 +1,8 @@
-# (TODO: your game's title)
+# Choice Based Text Game
 
-Author: (TODO: your name)
+Author: Kavya Tummalapalli
 
-Design: (TODO: In two sentences or fewer, describe what is new and interesting about your game.)
-
-Text Drawing: (TODO: how does the text drawing in this game work? Is text precomputed? Rendered at runtime? What files or utilities are involved?)
-
-Choices: (TODO: how does the game store choices and narrative? How are they authored? Anything nifty you want to point out?)
+Text Drawing: My text drawing is rendered at runtime when given the text that it wants to print based on the the room or choice that you make. It does so by using harfbuzz to shape and get information about the glyphs and positions, using freetype to render these glyphs into their relative positions for the specific text, and then using openGL to actually draw the glyphs on the screen. I was running into openGL GL_INVALID_OPERATION errors with the glDrawArrays(GL_TRIANGLES, 0, 6) operation and thus my text was not correctly displaying.
 
 Screen Shot:
 
@@ -14,9 +10,7 @@ Screen Shot:
 
 How To Play:
 
-(TODO: describe the controls and (if needed) goals/strategy.)
-
-Sources: (TODO: list a source URL for any assets you did not create yourself. Make sure you have a license for the asset.)
+Sources: Font: https://fonts.google.com/noto/specimen/Noto+Sans+Mono/about
 
 This game was built with [NEST](NEST.md).
 

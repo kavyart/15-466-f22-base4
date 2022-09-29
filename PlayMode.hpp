@@ -4,9 +4,21 @@
 #include "Sound.hpp"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include "gl_errors.hpp"
+
+#include <ft2build.h>
+#include FT_FREETYPE_H
+
+#include <hb.h>
+#include <hb-ft.h>
 
 #include <vector>
 #include <deque>
+
+#define SCR_WIDTH   1280
+#define SCR_HEIGHT  720
 
 struct PlayMode : Mode {
 	PlayMode();
@@ -18,6 +30,9 @@ struct PlayMode : Mode {
 	virtual void draw(glm::uvec2 const &drawable_size) override;
 
 	//----- game state -----
+	void draw_text(const char *fontfile, const char *text, float x, float y, float scale, glm::vec3 color);
+
+	GLuint VAO, VBO;
 
 	//input tracking:
 	struct Button {

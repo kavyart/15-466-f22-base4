@@ -1,5 +1,6 @@
 #include "PlayMode.hpp"
 
+#include "ColorProgram.hpp"
 #include "LitColorTextureProgram.hpp"
 
 #include "DrawLines.hpp"
@@ -9,8 +10,168 @@
 #include "data_path.hpp"
 
 #include <glm/gtc/type_ptr.hpp>
+#include "GL.hpp"
 
 #include <random>
+
+#include <ft2build.h>
+#include FT_FREETYPE_H
+
+#include <hb.h>
+#include <hb-ft.h>
+#define FONT_SIZE 36
+#define MARGIN (FONT_SIZE * .5)
+
+/* Modified from the Harfbuzz (https://github.com/harfbuzz/harfbuzz-tutorial)
+				 	 Freetype (https://freetype.org/freetype2/docs/tutorial/index.html)
+					 & OpenGL (https://learnopengl.com/In-Practice/Text-Rendering) tutorials. */
+void PlayMode::draw_text(const char *fontfile, const char *text, float x, float y, float scale, glm::vec3 color) {
+	// Initialize FreeType and create FreeType font face
+	FT_Library ft_library;
+	FT_Face ft_face;
+	FT_Error ft_error;
+	FT_UInt pixel_size = 16;
+
+	if ((ft_error = FT_Init_FreeType (&ft_library))) {
+		std::cout << "Error initializing library" << std::endl;
+		abort();
+	}
+	if ((ft_error = FT_New_Face (ft_library, fontfile, 0, &ft_face))) {
+		std::cout << "Error creating face" << std::endl;
+		abort();
+	}
+	if ((ft_error = FT_Set_Char_Size (ft_face, FONT_SIZE*64, FONT_SIZE*64, 0, 0))) {
+		std::cout << "Error setting character size" << std::endl;
+		abort();
+	}
+	if ((ft_error = FT_Set_Pixel_Sizes(ft_face, 0, pixel_size))) {
+		std::cout << "Error setting pixel size" << std::endl;
+		abort();
+	}
+
+
+	// Create hb-ft font and hb-buffer
+	hb_font_t *hb_font = hb_ft_font_create (ft_face, NULL);
+	hb_buffer_t *hb_buffer = hb_buffer_create ();
+	hb_buffer_add_utf8 (hb_buffer, text, -1, 0, -1);
+	hb_buffer_guess_segment_properties (hb_buffer);
+
+	// Shape hb
+	hb_shape (hb_font, hb_buffer, NULL, 0);
+
+	// Get glyph information and positions from the buffer
+	unsigned int len = hb_buffer_get_length (hb_buffer);
+	hb_glyph_info_t *info = hb_buffer_get_glyph_infos (hb_buffer, NULL);
+	hb_glyph_position_t *pos = hb_buffer_get_glyph_positions (hb_buffer, NULL);
+
+	// Shader
+	GLuint shader = color_program->program;
+    glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(SCR_WIDTH), 0.0f, static_cast<float>(SCR_HEIGHT));
+    glUseProgram(shader);
+	glUniform3f(glGetUniformLocation(shader, "textColor"), color.x, color.y, color.z);
+    glActiveTexture(GL_TEXTURE0);
+    glBindVertexArray(VAO);
+    glUniformMatrix4fv(glGetUniformLocation(shader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+
+	// Configure VAO/VBO for texture quads
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 4, NULL, GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), 0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+
+	// Set up matrix
+	FT_Matrix matrix;
+	float angle = 0;
+	matrix.xx = (FT_Fixed)( cos( angle ) * 0x10000L );
+	matrix.xy = (FT_Fixed)(-sin( angle ) * 0x10000L );
+	matrix.yx = (FT_Fixed)( sin( angle ) * 0x10000L );
+	matrix.yy = (FT_Fixed)( cos( angle ) * 0x10000L );
+
+	/* the pen position in 26.6 cartesian space coordinates; */
+	/* start at (300,200) relative to the upper left corner  */
+	FT_Vector pen;
+	pen.x = 300 * 64;
+	pen.y = ( SCR_HEIGHT - 200 ) * 64;
+
+	for (unsigned int i = 0; i < len; i++) {
+		// Set transformation
+		FT_Set_Transform(ft_face, &matrix, &pen);
+
+    	// Load glyph image into the slot (erase previous one)
+		if ((ft_error = FT_Load_Char(ft_face, info[i].codepoint, FT_LOAD_RENDER ))) {
+			std::cout << "Error loading character " << i << std::endl;
+			abort();
+		}
+
+
+		float xpos = x + pos[i].x_offset * scale;
+        float ypos = y - (pixel_size - pos[i].y_offset) * scale;
+
+        float w = pixel_size * scale;
+        float h = pixel_size * scale;
+
+
+		float vertices[6][4] = {
+            { xpos,     ypos + h,   0.0f, 0.0f },            
+            { xpos,     ypos,       0.0f, 1.0f },
+            { xpos + w, ypos,       1.0f, 1.0f },
+
+            { xpos,     ypos + h,   0.0f, 0.0f },
+            { xpos + w, ypos,       1.0f, 1.0f },
+            { xpos + w, ypos + h,   1.0f, 0.0f }             
+        };
+
+		// Generate texture
+		unsigned int texture;
+		glGenTextures(1, &texture);
+		glBindTexture(GL_TEXTURE_2D, texture);
+		glTexImage2D(
+			GL_TEXTURE_2D,
+			0,
+			GL_RED,
+			ft_face->glyph->bitmap.width,
+			ft_face->glyph->bitmap.rows,
+			0,
+			GL_RED,
+			GL_UNSIGNED_BYTE,
+			ft_face->glyph->bitmap.buffer
+		);
+		// Set texture options
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+		// Render glyph texture over quad
+        glBindTexture(GL_TEXTURE_2D, texture);
+        // Update content of VBO memory
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+        // Render quad
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        // Now advance cursors for next glyph (note that advance is number of 1/64 pixels)
+        x += (pos[i].x_advance >> 6) * scale;
+
+		// Increment pen position
+		pen.x += pos[i].x_advance;
+		pen.y += pos[i].y_advance;
+  	}
+
+  	glBindVertexArray(0);
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	FT_Done_Face    ( ft_face );
+	FT_Done_FreeType( ft_library );
+
+}
 
 GLuint hexapod_meshes_for_lit_color_texture_program = 0;
 Load< MeshBuffer > hexapod_meshes(LoadTagDefault, []() -> MeshBuffer const * {
@@ -204,7 +365,16 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LESS); //this is the default depth comparison function, but FYI you can change it.
 
-	scene.draw(*camera);
+
+	float aspect1 = float(drawable_size.x) / float(drawable_size.y);
+	constexpr float H1 = 0.09f;
+
+	const char *font = "dist/NotoSansMono-VariableFont_wdth,wght.ttf";
+	const char *text = "This is example test";
+
+	draw_text(font, text, -aspect1 + 0.1f * H1, -1.0 + 0.1f * H1, 20.0f, glm::vec3(0.0f, 0.0f, 0.0f));
+
+	// scene.draw(*camera);
 
 	{ //use DrawLines to overlay some text:
 		glDisable(GL_DEPTH_TEST);
@@ -227,7 +397,7 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
 			glm::u8vec4(0xff, 0xff, 0xff, 0x00));
 	}
-	GL_ERRORS();
+	// GL_ERRORS();
 }
 
 glm::vec3 PlayMode::get_leg_tip_position() {
